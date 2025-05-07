@@ -1,134 +1,140 @@
-export const ALPHABET_RU = 'абвгдежзийклмнопрстуфхцчшщьъыэюя';
+const alphabet = "абвгдежзийклмнопрстуфхцчшщъыьэюя";
 
-const RUSSIAN_LETTER_FREQ: Record<string, number> = {
-    'а': 0.062, 'б': 0.014, 'в': 0.038, 'г': 0.013, 'д': 0.025,
-    'е': 0.072, 'ж': 0.007, 'з': 0.016, 'и': 0.062, 'й': 0.010,
-    'к': 0.028, 'л': 0.035, 'м': 0.026, 'н': 0.053, 'о': 0.090,
-    'п': 0.023, 'р': 0.040, 'с': 0.045, 'т': 0.053, 'у': 0.021,
-    'ф': 0.002, 'х': 0.009, 'ц': 0.003, 'ч': 0.012, 'ш': 0.006,
-    'щ': 0.003, 'ъ': 0.007, 'ы': 0.016, 'ь': 0.007, 'э': 0.003, 'ю': 0.006, 'я': 0.018
+const freqs: Record<string, number> = {
+  "а": 7.64, "б": 2.01, "в": 4.38, "г": 1.72, "д": 3.09, "е": 8.95,
+  "ж": 1.01, "з": 1.48, "и": 7.09, "й": 1.21, "к": 3.30, "л": 4.96,
+  "м": 3.17, "н": 6.78, "о": 11.18, "п": 2.47, "р": 4.23, "с": 4.97,
+  "т": 6.09, "у": 2.22, "ф": 0.21, "х": 0.95, "ц": 0.39, "ч": 1.40,
+  "ш": 0.72, "щ": 0.30, "ъ": 0.02, "ы": 2.36, "ь": 1.84, "э": 0.36,
+  "ю": 0.47, "я": 1.96
 };
 
-const normalize = (text: string, alphabet: string): string =>
-    text.toLowerCase()
-        .replace(/ё/g, 'е')
-        .replace(/[^а-я]/g, '')
-        .split('')
-        .filter(c => alphabet.includes(c))
-        .join('');
+const MAX_KEY_LENGTH = 32;
+const MIN_FACTOR = 2;
+const EPSILON = 0.0001;
 
-const charIndex = (char: string, alphabet: string) => {
-    const idx = alphabet.indexOf(char);
-    if (idx === -1) throw new Error(`Invalid character: '${char}'`);
-    return idx;
-};
-
-function vigenere(text: string, key: string, encrypt = true, alphabet = ALPHABET_RU): string {
-    text = normalize(text, alphabet);
-    key = normalize(key, alphabet);
-
-    return text.split('').map((char, i) => {
-        const shift = charIndex(key[i % key.length], alphabet);
-        const textIdx = charIndex(char, alphabet);
-        const newIndex = encrypt
-            ? (textIdx + shift) % alphabet.length
-            : (textIdx - shift + alphabet.length) % alphabet.length;
-        return alphabet[newIndex];
-    }).join('');
+export function cleanText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^а-я]/g, '');
 }
 
-export const vigenereEncrypt = (text: string, key: string) => vigenere(text, key, true);
-export const vigenereDecrypt = (text: string, key: string) => vigenere(text, key, false);
+export function groupify(text: string): string {
+  return text.replace(/(.{5})/g, '$1 ').trim();
+}
 
-function getFrequencies(text: string, alphabet: string): Record<string, number> {
-    const freq: Record<string, number> = {};
-    for (const char of text) {
-        if (alphabet.includes(char)) {
-            freq[char] = (freq[char] || 0) + 1;
+export function vigenereEncrypt(plain: string, key: string): string {
+  let result = "";
+  const keyLength = key.length;
+
+  for (let i = 0; i < plain.length; i++) {
+    const plainIndex = alphabet.indexOf(plain[i]);
+    const keyIndex = alphabet.indexOf(key[i % keyLength]);
+
+    if (plainIndex === -1 || keyIndex === -1) continue;
+
+    const cipherIndex = (plainIndex + keyIndex) % alphabet.length;
+    result += alphabet[cipherIndex];
+  }
+
+  return result;
+}
+
+export function vigenereDecrypt(cipher: string, key: string): string {
+  let result = "";
+  const keyLength = key.length;
+
+  for (let i = 0; i < cipher.length; i++) {
+    const cipherIndex = alphabet.indexOf(cipher[i]);
+    const keyIndex = alphabet.indexOf(key[i % keyLength]);
+
+    if (cipherIndex === -1 || keyIndex === -1) continue;
+
+    let plainIndex = cipherIndex - keyIndex;
+    if (plainIndex < 0) plainIndex += alphabet.length;
+
+    result += alphabet[plainIndex];
+  }
+
+  return result;
+}
+
+export function breakVigenere(cipher: string): { key: string, plaintext: string } {
+  const cipherLength = cipher.length;
+  const seen: Record<string, number> = {};
+  const distances: number[] = [];
+
+  // 1. Поиск повторяющихся триграмм и расстояний между ними
+  for (let i = 0; i < cipherLength - 2; i++) {
+    const trigram = cipher.slice(i, i + 3);
+    if (seen[trigram] !== undefined) {
+      distances.push(i - seen[trigram]);
+    }
+    seen[trigram] = i;
+  }
+
+  // 2. Оценка длины ключа через делители расстояний
+  let keyLength = 0;
+  if (distances.length > 0) {
+    const factorCounts: Record<number, number> = {};
+
+    for (const distance of distances) {
+      for (let factor = MIN_FACTOR; factor <= MAX_KEY_LENGTH; factor++) {
+        if (distance % factor === 0) {
+          factorCounts[factor] = (factorCounts[factor] || 0) + 1;
         }
+      }
     }
 
-    const total = text.length;
-    for (const char in freq) {
-        freq[char] /= total;
+    let maxCount = 0;
+    for (const [lengthStr, count] of Object.entries(factorCounts)) {
+      const length = parseInt(lengthStr);
+      if (count > maxCount) {
+        maxCount = count;
+        keyLength = length;
+      }
+    }
+  }
+
+  if (keyLength === 0) return { key: "", plaintext: "" };
+
+  // 3. Поиск ключа по смещению с минимальным хи-квадратом
+  let foundKey = "";
+
+  for (let offset = 0; offset < keyLength; offset++) {
+    const letterCounts = new Array(alphabet.length).fill(0);
+    let groupLength = 0;
+
+    for (let i = offset; i < cipherLength; i += keyLength) {
+      const index = alphabet.indexOf(cipher[i]);
+      if (index !== -1) {
+        letterCounts[index]++;
+        groupLength++;
+      }
     }
 
-    return freq;
-}
+    let bestChi = Infinity;
+    let bestShift = 0;
 
-function splitTextByKeyLength(text: string, keyLength: number): string[] {
-    return Array.from({ length: keyLength }, (_, i) =>
-        text.split('').filter((_, j) => j % keyLength === i).join('')
-    );
-}
-
-function indexOfCoincidence(text: string, alphabet: string): number {
-    const freq = getFrequencies(text, alphabet);
-    const n = text.length;
-
-    const sum = Object.values(freq).reduce((acc, f) => acc + f * (n * f - 1), 0);
-    return sum / (n - 1);
-}
-
-function findKeyLength(text: string, alphabet: string): number {
-    if (text.length < 30) return 1;
-
-    const distances: { keyLength: number; averageIC: number }[] = [];
-    const maxKeyLength = 20;
-
-    for (let keyLength = 1; keyLength <= maxKeyLength; keyLength++) {
-        const substrings = splitTextByKeyLength(text, keyLength);
-        const icValues: number[] = substrings.map(substring =>
-            indexOfCoincidence(substring, alphabet)
-        );
-        const averageIC = icValues.reduce((acc, value) => acc + value, 0) / icValues.length;
-
-        distances.push({ keyLength, averageIC });
+    for (let shift = 0; shift < alphabet.length; shift++) {
+      let chi = 0;
+      for (let j = 0; j < alphabet.length; j++) {
+        const observed = letterCounts[(j + shift) % alphabet.length];
+        const expected = (freqs[alphabet[j]] ?? 0) * groupLength / 100;
+        chi += ((observed - expected) ** 2) / (expected || EPSILON);
+      }
+      if (chi < bestChi) {
+        bestChi = chi;
+        bestShift = shift;
+      }
     }
 
-    console.log('Key length candidates:', distances);
+    foundKey += alphabet[bestShift];
+  }
 
-    distances.sort((a, b) => {
-        const weightA = a.averageIC / a.keyLength;
-        const weightB = b.averageIC / b.keyLength;
-        return weightB - weightA;
-    });
-
-    return distances[0].keyLength;
+  return {
+    key: foundKey,
+    plaintext: vigenereDecrypt(cipher, foundKey)
+  };
 }
-
-export function TryToFindRightKey(text: string, alphabet: string): string {
-    text = normalize(text, alphabet);
-    const keyLength = findKeyLength(text, alphabet);
-    const substrings = splitTextByKeyLength(text, keyLength);
-
-    return substrings.map(sub => {
-        const freqs = getFrequencies(sub, alphabet);
-        let bestShift = 0, minDiff = Infinity;
-
-        for (let shift = 0; shift < alphabet.length; shift++) {
-            const diff = alphabet.split('').reduce((acc, char, i) => {
-                const shifted = alphabet[(i + shift) % alphabet.length];
-                const fi = freqs[char] || 0;
-                const pi = RUSSIAN_LETTER_FREQ[shifted] || 0;
-                return acc + Math.pow(fi - pi, 2);
-            }, 0);
-
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestShift = shift;
-            }
-        }
-
-        return alphabet[bestShift];
-    }).join('');
-}
-
-export const groupText = (text: string): string =>
-    text.match(/.{1,5}/g)?.join(' ') || '';
-
-export const validateInput = (text: string, key: string): void => {
-    if (!text.trim() || !key.trim()) {
-        throw new Error('Text and key cannot be empty.');
-    }
-};
