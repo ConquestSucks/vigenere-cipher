@@ -1,6 +1,16 @@
 export const ALPHABET = 'абвгдежзийклмнопрстуфхцчшщъыьэюя';
 const N = ALPHABET.length;
 
+// Паттерн для проверки, что строка содержит только кириллические буквы (включая ёЁ) и пробелы
+const CYRILLIC_OR_SPACE_PATTERN = /^[а-яА-ЯёЁ\s]+$/;
+
+// Функция для проверки на кириллические символы и пробелы
+function checkCyrillicAndSpaces(text: string, fieldName: string): void {
+  if (text.length > 0 && !CYRILLIC_OR_SPACE_PATTERN.test(text)) {
+    throw new Error(`Поле "${fieldName}" может содержать только русские буквы. Другие символы (цифры, знаки препинания и т.д.) не допускаются.`);
+  }
+}
+
 export interface CipherStepDetail {
   step: number;                 // Порядковый номер символа в тексте (1-based)
   originalChar: string;         // Исходный символ текста
@@ -20,27 +30,26 @@ export interface CipherResult {
 }
 
 export function preprocess(input: string): string {
+  // Предполагается, что input уже прошел checkCyrillicAndSpaces
   let text = input.toLowerCase();
   // Сначала «Ё» → «е»
   text = text.replace(/ё/g, 'е');
-  // Убираем всё, что не [а–я]
+  // Удаляем все пробелы
+  text = text.replace(/\s+/g, '');
+  // Убираем всё, что не [а-я] (соответствует ALPHABET после предыдущих преобразований)
   text = text.replace(/[^а-я]/g, '');
   return text;
 }
 
 export function validateText(text: string) {
   if (!text || text.length === 0) {
-    throw new Error('Текст после очистки не содержит допустимых букв [а-я].');
+    throw new Error('Текст не должен быть пустым.');
   }
 }
 
 export function validateKey(key: string) {
-  const processedKey = preprocess(key);
-  if (key.length === 0) { // Проверяем сырой ключ на пустоту сначала
-    throw new Error('Ключ после очистки не содержит допустимых букв [а-я].');
-  }
-  if (processedKey.length === 0) {
-     throw new Error('Ключ не содержит допустимых символов русского алфавита после очистки.');
+  if (!key || key.length === 0) { 
+    throw new Error('Ключ не должен быть пустым.');
   }
 }
 
@@ -49,6 +58,8 @@ export function groupByFive(text: string): string {
 }
 
 export function encryptVigenere(rawPlain: string, rawKey: string): CipherResult {
+  checkCyrillicAndSpaces(rawKey, "ключ");
+
   const plaintext = preprocess(rawPlain);
   validateText(plaintext);
 
@@ -87,6 +98,8 @@ export function encryptVigenere(rawPlain: string, rawKey: string): CipherResult 
 }
 
 export function decryptVigenere(rawCipher: string, rawKey: string): CipherResult {
+  checkCyrillicAndSpaces(rawKey, "ключ");
+
   const ciphertext = preprocess(rawCipher);
   validateText(ciphertext);
 
